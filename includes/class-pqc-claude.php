@@ -56,7 +56,14 @@ class PQC_Claude {
 			'max_tokens'    => (int) $settings['max_tokens'],
 			'stream'        => true,
 			'system'        => $settings['system_prompt'],
-			'thinking'      => [ 'type' => 'adaptive' ],
+			'thinking'      => [
+				'type'    => 'adaptive',
+				// "summarized" returns visible thinking content so it can be safely
+				// echoed back in tool-use continuation turns. The default "omitted"
+				// causes a 400 on echo-back because each thinking block must
+				// contain non-empty thinking text.
+				'display' => 'summarized',
+			],
 			'output_config' => [ 'effort' => 'high' ],
 			'messages'      => [
 				[ 'role' => 'user', 'content' => $user_content ],
@@ -118,8 +125,9 @@ class PQC_Claude {
 
 			// pause_turn: server-side tool iteration cap hit — resume.
 			if ( $state['stop_reason'] === 'pause_turn' ) {
-				if ( ! empty( $state['assistant_blocks'] ) ) {
-					$body['messages'][] = [ 'role' => 'assistant', 'content' => $state['assistant_blocks'] ];
+				$echo = self::prepare_echo_blocks( $state['assistant_blocks'] );
+				if ( ! empty( $echo ) ) {
+					$body['messages'][] = [ 'role' => 'assistant', 'content' => $echo ];
 					continue;
 				}
 				return $accumulated;
@@ -136,7 +144,7 @@ class PQC_Claude {
 				if ( empty( $tool_uses ) ) {
 					return $accumulated;
 				}
-				$body['messages'][] = [ 'role' => 'assistant', 'content' => $state['assistant_blocks'] ];
+				$body['messages'][] = [ 'role' => 'assistant', 'content' => self::prepare_echo_blocks( $state['assistant_blocks'] ) ];
 
 				$tool_results = [];
 				foreach ( $tool_uses as $tu ) {
@@ -313,7 +321,13 @@ class PQC_Claude {
 
 			case 'content_block_start':
 				$cb            = isset( $payload['content_block'] ) ? $payload['content_block'] : [];
-				$current_block = [ 'data' => $cb, 'text' => '', 'json' => '' ];
+				$current_block = [
+					'data'      => $cb,
+					'text'      => '',
+					'json'      => '',
+					'thinking'  => isset( $cb['thinking'] ) ? $cb['thinking'] : '',
+					'signature' => isset( $cb['signature'] ) ? $cb['signature'] : '',
+				];
 				if ( ( $cb['type'] ?? '' ) === 'server_tool_use' && ( $cb['name'] ?? '' ) === 'web_search' ) {
 					$q = isset( $cb['input']['query'] ) ? $cb['input']['query'] : '';
 					if ( $q !== '' ) {
@@ -327,14 +341,19 @@ class PQC_Claude {
 				if ( ! is_array( $current_block ) ) {
 					break;
 				}
-				if ( ( $delta['type'] ?? '' ) === 'text_delta' && isset( $delta['text'] ) ) {
+				$dtype = $delta['type'] ?? '';
+				if ( $dtype === 'text_delta' && isset( $delta['text'] ) ) {
 					$current_block['text'] .= $delta['text'];
 					$state['text']         .= $delta['text'];
 					if ( $progress ) {
 						call_user_func( $progress, $state['text'] );
 					}
-				} elseif ( ( $delta['type'] ?? '' ) === 'input_json_delta' && isset( $delta['partial_json'] ) ) {
+				} elseif ( $dtype === 'input_json_delta' && isset( $delta['partial_json'] ) ) {
 					$current_block['json'] .= $delta['partial_json'];
+				} elseif ( $dtype === 'thinking_delta' && isset( $delta['thinking'] ) ) {
+					$current_block['thinking'] .= $delta['thinking'];
+				} elseif ( $dtype === 'signature_delta' && isset( $delta['signature'] ) ) {
+					$current_block['signature'] = $delta['signature'];
 				}
 				break;
 
@@ -369,14 +388,42 @@ class PQC_Claude {
 		if ( $type === 'text' ) {
 			$data['text'] = $cb['text'];
 		} elseif ( $type === 'tool_use' || $type === 'server_tool_use' ) {
-			if ( $cb['json'] !== '' ) {
+			if ( ! empty( $cb['json'] ) ) {
 				$decoded = json_decode( $cb['json'], true );
 				if ( is_array( $decoded ) ) {
 					$data['input'] = $decoded;
 				}
 			}
+		} elseif ( $type === 'thinking' ) {
+			$data['thinking']  = isset( $cb['thinking'] ) ? $cb['thinking'] : '';
+			if ( ! empty( $cb['signature'] ) ) {
+				$data['signature'] = $cb['signature'];
+			}
 		}
 		return $data;
+	}
+
+	/**
+	 * Prepare assistant content for echo-back during tool-use / pause_turn
+	 * continuation. The API rejects thinking blocks whose `thinking` field is
+	 * empty, which can happen on Opus 4.7 when display is not set to
+	 * "summarized" or when streaming dropped mid-block.
+	 */
+	private static function prepare_echo_blocks( array $blocks ) {
+		$out = [];
+		foreach ( $blocks as $blk ) {
+			$type = isset( $blk['type'] ) ? $blk['type'] : '';
+			if ( $type === 'thinking' ) {
+				if ( empty( $blk['thinking'] ) ) {
+					continue;
+				}
+			}
+			if ( $type === 'text' && ( ! isset( $blk['text'] ) || $blk['text'] === '' ) ) {
+				continue;
+			}
+			$out[] = $blk;
+		}
+		return $out;
 	}
 
 	private static function merge_usage( array $a, array $b ) {
