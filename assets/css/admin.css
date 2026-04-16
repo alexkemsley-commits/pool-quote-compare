@@ -1,0 +1,11 @@
+.pqc-admin .form-table textarea { font-family: Menlo, Consolas, monospace; font-size: 13px; }
+.pqc-response-box {
+	background: #fff;
+	border: 1px solid #d0d7de;
+	border-radius: 6px;
+	padding: 16px 18px;
+	max-height: 600px;
+	overflow: auto;
+	line-height: 1.55;
+}
+.pqc-admin pre { background: #f6f7f7; border: 1px solid #ccd0d4; padding: 10px; white-space: pre-wrap; }

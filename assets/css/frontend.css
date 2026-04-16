@@ -1,0 +1,55 @@
+.pqc-wrapper { max-width: 760px; margin: 0 auto; font-family: inherit; }
+.pqc-form { background: #fff; padding: 24px; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.pqc-row { margin-bottom: 18px; }
+.pqc-row label { display: block; font-weight: 600; margin-bottom: 6px; }
+.pqc-form input[type="text"],
+.pqc-form input[type="email"],
+.pqc-form textarea,
+.pqc-form input[type="file"] {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 10px 12px;
+	border: 1px solid #c4c4c4;
+	border-radius: 6px;
+	font-size: 15px;
+	background: #fff;
+}
+.pqc-form textarea { resize: vertical; }
+.pqc-hint { font-size: 13px; color: #555; margin: 6px 0 0; }
+.pqc-consent label { font-weight: 400; display: flex; align-items: flex-start; gap: 8px; }
+.pqc-submit {
+	background: #0b5fff;
+	color: #fff;
+	border: none;
+	padding: 12px 22px;
+	font-size: 16px;
+	font-weight: 600;
+	border-radius: 6px;
+	cursor: pointer;
+}
+.pqc-submit:hover { background: #0848c2; }
+.pqc-submit:disabled { opacity: .6; cursor: not-allowed; }
+.pqc-status { margin-top: 16px; padding: 12px 14px; border-radius: 6px; }
+.pqc-status.is-loading { background: #fff8e1; border: 1px solid #f0c36d; }
+.pqc-status.is-error { background: #fdecea; border: 1px solid #f1b5b0; color: #611a15; }
+.pqc-result { margin-top: 28px; background: #f8fafc; border: 1px solid #d9e2ec; border-radius: 8px; padding: 24px; }
+.pqc-result h3 { margin-top: 0; }
+.pqc-result-body { white-space: pre-wrap; line-height: 1.55; }
+.pqc-sent-note { margin-top: 16px; color: #1b5e20; font-weight: 600; }
+.pqc-transparency { margin-top: 36px; padding: 20px; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 8px; }
+.pqc-transparency h3 { margin-top: 0; }
+.pqc-transparency code { background: #fff; padding: 2px 6px; border: 1px solid #d0d7de; border-radius: 4px; }
+.pqc-prompt-details summary { cursor: pointer; font-weight: 600; margin: 8px 0; }
+.pqc-prompt {
+	max-height: 360px;
+	overflow: auto;
+	background: #fff;
+	border: 1px solid #d0d7de;
+	padding: 14px;
+	font-size: 13px;
+	white-space: pre-wrap;
+	border-radius: 6px;
+}
+@media (max-width: 600px) {
+	.pqc-form { padding: 16px; }
+}

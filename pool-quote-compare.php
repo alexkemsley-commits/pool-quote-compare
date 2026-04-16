@@ -1,0 +1,67 @@
+<?php
+/**
+ * Plugin Name: Pool Quote Compare
+ * Description: Lets customers upload 2+ pool quotes (PDF/DOCX) and receive an AI-generated comparison powered by Claude Opus 4.7 (1M context). Saves every submission, can email the response to the customer, and shows the agent prompt for transparency.
+ * Version: 1.0.0
+ * Requires PHP: 7.4
+ * Requires at least: 6.0
+ * Author: Pool Quote Compare
+ * License: GPL-2.0-or-later
+ * Text Domain: pool-quote-compare
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+define( 'PQC_VERSION', '1.0.0' );
+define( 'PQC_PLUGIN_FILE', __FILE__ );
+define( 'PQC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+define( 'PQC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+define( 'PQC_OPTION_KEY', 'pqc_settings' );
+define( 'PQC_TABLE', 'pqc_submissions' );
+
+require_once PQC_PLUGIN_DIR . 'includes/class-pqc-storage.php';
+require_once PQC_PLUGIN_DIR . 'includes/class-pqc-parser.php';
+require_once PQC_PLUGIN_DIR . 'includes/class-pqc-claude.php';
+require_once PQC_PLUGIN_DIR . 'includes/class-pqc-admin.php';
+require_once PQC_PLUGIN_DIR . 'includes/class-pqc-frontend.php';
+require_once PQC_PLUGIN_DIR . 'includes/class-pqc-ajax.php';
+
+register_activation_hook( __FILE__, [ 'PQC_Storage', 'activate' ] );
+
+add_action( 'plugins_loaded', function () {
+	PQC_Admin::init();
+	PQC_Frontend::init();
+	PQC_Ajax::init();
+} );
+
+function pqc_default_system_prompt() {
+	$path = PQC_PLUGIN_DIR . 'includes/agent-prompt.md';
+	if ( file_exists( $path ) ) {
+		return file_get_contents( $path );
+	}
+	return '';
+}
+
+function pqc_get_settings() {
+	$defaults = [
+		'api_key'             => '',
+		'system_prompt'       => pqc_default_system_prompt(),
+		'model'               => 'claude-opus-4-7',
+		'max_tokens'          => 16000,
+		'enable_web_search'   => 1,
+		'max_file_mb'         => 25,
+		'max_files'           => 5,
+		'email_from_name'     => get_bloginfo( 'name' ),
+		'email_from_address'  => get_option( 'admin_email' ),
+		'email_subject'       => __( 'Your pool quote comparison', 'pool-quote-compare' ),
+		'email_intro'         => __( 'Thanks for using our pool quote comparison tool. Your AI-generated comparison is below.', 'pool-quote-compare' ),
+		'bcc_admin'           => 1,
+	];
+	$saved = get_option( PQC_OPTION_KEY, [] );
+	if ( ! is_array( $saved ) ) {
+		$saved = [];
+	}
+	return array_merge( $defaults, $saved );
+}
