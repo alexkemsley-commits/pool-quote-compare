@@ -23,16 +23,25 @@ class PQC_Frontend {
 		wp_enqueue_style( 'pqc-frontend' );
 		wp_enqueue_script( 'pqc-frontend' );
 		wp_localize_script( 'pqc-frontend', 'PQC', [
-			'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
-			'nonce'     => wp_create_nonce( 'pqc_submit' ),
-			'maxFiles'  => $max_n,
-			'maxBytes'  => $max_mb * 1024 * 1024,
-			'i18n'      => [
-				'tooMany'   => sprintf( __( 'Please upload no more than %d files.', 'pool-quote-compare' ), $max_n ),
-				'tooFew'    => __( 'Please upload at least 2 quotes to compare.', 'pool-quote-compare' ),
-				'tooBig'    => sprintf( __( 'Each file must be under %d MB.', 'pool-quote-compare' ), $max_mb ),
-				'submitting' => __( 'Analysing your quotes… this usually takes 1–3 minutes.', 'pool-quote-compare' ),
-				'error'     => __( 'Something went wrong. Please try again or contact us.', 'pool-quote-compare' ),
+			'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
+			'nonce'    => wp_create_nonce( 'pqc_submit' ),
+			'maxFiles' => $max_n,
+			'maxBytes' => $max_mb * 1024 * 1024,
+			'i18n'     => [
+				'tooMany'      => sprintf( __( 'Please upload no more than %d files.', 'pool-quote-compare' ), $max_n ),
+				'tooFew'       => __( 'Please upload at least 2 quotes to compare.', 'pool-quote-compare' ),
+				'tooBig'       => sprintf( __( 'Each file must be under %d MB.', 'pool-quote-compare' ), $max_mb ),
+				'uploading'    => __( 'Uploading your quotes…', 'pool-quote-compare' ),
+				'queued'       => __( 'Queued — starting the agent…', 'pool-quote-compare' ),
+				'reading'      => __( 'Reading your quotes…', 'pool-quote-compare' ),
+				'writing'      => __( 'Writing your comparison live…', 'pool-quote-compare' ),
+				'done'         => __( 'Done.', 'pool-quote-compare' ),
+				'donePartial'  => __( 'Finished (partial — see below).', 'pool-quote-compare' ),
+				'failed'       => __( 'Analysis failed. Please try again or contact us.', 'pool-quote-compare' ),
+				'workingTitle' => __( 'Working on your comparison…', 'pool-quote-compare' ),
+				'resultTitle'  => __( 'Your comparison', 'pool-quote-compare' ),
+				'emailed'      => __( 'A copy has been emailed to you.', 'pool-quote-compare' ),
+				'error'        => __( 'Something went wrong. Please try again or contact us.', 'pool-quote-compare' ),
 			],
 		] );
 
@@ -51,9 +60,48 @@ class PQC_Frontend {
 					<input id="pqc-email" name="customer_email" type="email" required />
 				</div>
 
+				<?php
+				$priority_options = [
+					'cheap'      => [
+						'title'   => __( 'Cheap', 'pool-quote-compare' ),
+						'subtext' => __( 'Lowest upfront price you can defensibly justify.', 'pool-quote-compare' ),
+					],
+					'quick'      => [
+						'title'   => __( 'Quick', 'pool-quote-compare' ),
+						'subtext' => __( 'Fastest realistic install timeline, in the water sooner.', 'pool-quote-compare' ),
+					],
+					'good'       => [
+						'title'   => __( 'Good', 'pool-quote-compare' ),
+						'subtext' => __( 'Premium specification, finish and equipment quality.', 'pool-quote-compare' ),
+					],
+					'cheap_run'  => [
+						'title'   => __( 'Cheap to run long term', 'pool-quote-compare' ),
+						'subtext' => __( 'Energy-efficient pump, heating and cover — lowest 10-year running cost.', 'pool-quote-compare' ),
+					],
+					'low_risk'   => [
+						'title'   => __( 'Low risk', 'pool-quote-compare' ),
+						'subtext' => __( 'Accountable warranty, watertight scope, no surprise extras during the build.', 'pool-quote-compare' ),
+					],
+				];
+				?>
 				<div class="pqc-row">
-					<label for="pqc-notes"><?php esc_html_e( 'Address / postcode and any priorities (optional)', 'pool-quote-compare' ); ?></label>
-					<textarea id="pqc-notes" name="customer_notes" rows="4" placeholder="<?php esc_attr_e( 'E.g. budget cap, intended use, family situation, access constraints, timing…', 'pool-quote-compare' ); ?>"></textarea>
+					<label><?php esc_html_e( "Pick the 2 that matter most to you", 'pool-quote-compare' ); ?></label>
+					<p class="pqc-hint pqc-tradeoff-hint"><?php esc_html_e( "It's the classic cheap / quick / good trade-off — plus running cost and risk. Real-world pools can't do all five at once. Pick the two you'll measure each quote against.", 'pool-quote-compare' ); ?></p>
+					<div class="pqc-priorities">
+						<?php foreach ( $priority_options as $key => $opt ) : ?>
+							<label class="pqc-priority">
+								<input type="checkbox" name="priorities[]" value="<?php echo esc_attr( $key ); ?>" data-pqc-priority="1" />
+								<span class="pqc-priority-title"><?php echo esc_html( $opt['title'] ); ?></span>
+								<span class="pqc-priority-sub"><?php echo esc_html( $opt['subtext'] ); ?></span>
+							</label>
+						<?php endforeach; ?>
+					</div>
+					<p class="pqc-hint" id="pqc-priority-warning" hidden></p>
+				</div>
+
+				<div class="pqc-row">
+					<label for="pqc-notes"><?php esc_html_e( 'Anything else we should know? (optional)', 'pool-quote-compare' ); ?></label>
+					<textarea id="pqc-notes" name="customer_notes" rows="4" placeholder="<?php esc_attr_e( 'E.g. budget cap, intended use, family situation, access constraints, timing, planning constraints, or specific concerns about a quote…', 'pool-quote-compare' ); ?>"></textarea>
 				</div>
 
 				<div class="pqc-row">
@@ -74,7 +122,14 @@ class PQC_Frontend {
 			</form>
 
 			<div class="pqc-result" id="pqc-result" hidden>
-				<h3><?php esc_html_e( 'Your comparison', 'pool-quote-compare' ); ?></h3>
+				<div class="pqc-result-header">
+					<h3 id="pqc-result-title"><?php esc_html_e( 'Working on your comparison…', 'pool-quote-compare' ); ?></h3>
+					<div class="pqc-progress" id="pqc-progress" aria-live="polite">
+						<span class="pqc-spinner" id="pqc-spinner"></span>
+						<span class="pqc-progress-text" id="pqc-progress-text"><?php esc_html_e( 'Reading your quotes…', 'pool-quote-compare' ); ?></span>
+						<span class="pqc-progress-meta" id="pqc-progress-meta"></span>
+					</div>
+				</div>
 				<div class="pqc-result-body" id="pqc-result-body"></div>
 				<p class="pqc-sent-note" id="pqc-sent-note" hidden></p>
 			</div>
