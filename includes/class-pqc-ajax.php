@@ -96,24 +96,41 @@ class PQC_Ajax {
 
 		PQC_Storage::update( $submission_id, [ 'files_json' => wp_json_encode( $saved ) ] );
 
+		$last_save = 0;
+		PQC_Claude::set_progress_callback( function ( $partial ) use ( $submission_id, &$last_save ) {
+			$now = time();
+			if ( $now - $last_save >= 5 ) {
+				$last_save = $now;
+				PQC_Storage::update( $submission_id, [
+					'status'   => 'streaming',
+					'response' => $partial,
+				] );
+			}
+		} );
+
 		$result = PQC_Claude::compare( $settings, $doc_blocks, $notes );
+		PQC_Claude::set_progress_callback( null );
+
 		if ( is_wp_error( $result ) ) {
 			self::mark_failed( $submission_id, $result->get_error_message() );
 			wp_send_json_error( [ 'message' => $result->get_error_message() ], 502 );
 		}
 
+		$status = ! empty( $result['error'] ) ? 'partial' : 'completed';
 		PQC_Storage::update( $submission_id, [
-			'status'     => 'completed',
-			'response'   => $result['text'],
-			'usage_json' => wp_json_encode( $result['usage'] ),
+			'status'        => $status,
+			'response'      => isset( $result['text'] ) ? $result['text'] : '',
+			'usage_json'    => wp_json_encode( isset( $result['usage'] ) ? $result['usage'] : [] ),
+			'error_message' => isset( $result['error'] ) ? $result['error'] : null,
 		] );
 
 		$sent = self::send_customer_email( $submission_id );
 
 		wp_send_json_success( [
 			'id'       => $submission_id,
-			'response' => $result['text'],
+			'response' => isset( $result['text'] ) ? $result['text'] : '',
 			'emailed'  => (bool) $sent,
+			'partial'  => $status === 'partial',
 		] );
 	}
 
