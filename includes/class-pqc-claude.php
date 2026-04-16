@@ -405,21 +405,26 @@ class PQC_Claude {
 
 	/**
 	 * Prepare assistant content for echo-back during tool-use / pause_turn
-	 * continuation. The API rejects thinking blocks whose `thinking` field is
-	 * empty, which can happen on Opus 4.7 when display is not set to
-	 * "summarized" or when streaming dropped mid-block.
+	 * continuation.
+	 *
+	 * Thinking blocks are stripped entirely: Opus 4.7 defaults `display` to
+	 * "omitted" so thinking content streams in empty, and the API then rejects
+	 * the echo with "each thinking block must contain thinking". Dropping them
+	 * is safe — the model regenerates any reasoning it needs on the next turn
+	 * and the tool_use/text blocks carry the conversational state.
 	 */
 	private static function prepare_echo_blocks( array $blocks ) {
 		$out = [];
 		foreach ( $blocks as $blk ) {
 			$type = isset( $blk['type'] ) ? $blk['type'] : '';
-			if ( $type === 'thinking' ) {
-				if ( empty( $blk['thinking'] ) ) {
+			if ( $type === 'thinking' || $type === 'redacted_thinking' ) {
+				continue;
+			}
+			if ( $type === 'text' ) {
+				$text = isset( $blk['text'] ) ? trim( (string) $blk['text'] ) : '';
+				if ( $text === '' ) {
 					continue;
 				}
-			}
-			if ( $type === 'text' && ( ! isset( $blk['text'] ) || $blk['text'] === '' ) ) {
-				continue;
 			}
 			$out[] = $blk;
 		}
