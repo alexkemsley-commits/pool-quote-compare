@@ -82,6 +82,9 @@ class PQC_Admin {
 		if ( isset( $input['email_intro'] ) ) {
 			$clean['email_intro'] = wp_kses_post( $input['email_intro'] );
 		}
+		if ( isset( $input['disclaimer'] ) ) {
+			$clean['disclaimer'] = wp_kses_post( $input['disclaimer'] );
+		}
 		$clean['bcc_admin'] = ! empty( $input['bcc_admin'] ) ? 1 : 0;
 
 		return $clean;
@@ -171,6 +174,13 @@ class PQC_Admin {
 					<tr>
 						<th scope="row"><label for="pqc_email_intro"><?php esc_html_e( 'Email intro', 'pool-quote-compare' ); ?></label></th>
 						<td><textarea id="pqc_email_intro" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[email_intro]" rows="3" class="large-text"><?php echo esc_textarea( $settings['email_intro'] ); ?></textarea></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="pqc_disclaimer"><?php esc_html_e( 'Disclaimer', 'pool-quote-compare' ); ?></label></th>
+						<td>
+							<textarea id="pqc_disclaimer" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[disclaimer]" rows="6" class="large-text"><?php echo esc_textarea( $settings['disclaimer'] ); ?></textarea>
+							<p class="description"><?php esc_html_e( 'Shown at the bottom of the comparison on the webpage and in the email. Covers AI accuracy limitations and the customer\'s duty to verify.', 'pool-quote-compare' ); ?></p>
+						</td>
 					</tr>
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Admin copy', 'pool-quote-compare' ); ?></th>
@@ -273,17 +283,33 @@ class PQC_Admin {
 			</tbody></table>
 
 			<h2><?php esc_html_e( 'Uploaded files', 'pool-quote-compare' ); ?></h2>
-			<ul>
-				<?php foreach ( $files as $f ) : ?>
-					<li><?php echo esc_html( isset( $f['original'] ) ? $f['original'] : '' ); ?> <small>(<?php echo esc_html( isset( $f['size'] ) ? size_format( (int) $f['size'] ) : '' ); ?>)</small></li>
+			<table class="widefat striped">
+				<thead><tr>
+					<th><?php esc_html_e( 'Filename', 'pool-quote-compare' ); ?></th>
+					<th><?php esc_html_e( 'Size', 'pool-quote-compare' ); ?></th>
+					<th></th>
+				</tr></thead>
+				<tbody>
+				<?php foreach ( $files as $idx => $f ) :
+					$dl_url = wp_nonce_url(
+						admin_url( 'admin-ajax.php?action=pqc_download&id=' . (int) $row->id . '&i=' . (int) $idx ),
+						'pqc_download_' . (int) $row->id
+					);
+				?>
+					<tr>
+						<td><?php echo esc_html( isset( $f['original'] ) ? $f['original'] : '' ); ?></td>
+						<td><?php echo esc_html( isset( $f['size'] ) ? size_format( (int) $f['size'] ) : '' ); ?></td>
+						<td><a class="button button-small" href="<?php echo esc_url( $dl_url ); ?>"><?php esc_html_e( 'Download', 'pool-quote-compare' ); ?></a></td>
+					</tr>
 				<?php endforeach; ?>
-			</ul>
+				</tbody>
+			</table>
 
 			<h2><?php esc_html_e( 'AI response', 'pool-quote-compare' ); ?></h2>
 			<?php if ( ! empty( $row->error_message ) ) : ?>
 				<div class="notice notice-error inline"><p><?php echo esc_html( $row->error_message ); ?></p></div>
 			<?php endif; ?>
-			<div class="pqc-response-box"><?php echo wp_kses_post( wpautop( $row->response ) ); ?></div>
+			<div class="pqc-response-box"><?php echo PQC_Markdown::render( (string) $row->response ); ?></div>
 
 			<?php if ( $usage ) : ?>
 				<h3><?php esc_html_e( 'Usage', 'pool-quote-compare' ); ?></h3>

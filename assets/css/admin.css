@@ -3,9 +3,17 @@
 	background: #fff;
 	border: 1px solid #d0d7de;
 	border-radius: 6px;
-	padding: 16px 18px;
-	max-height: 600px;
+	padding: 16px 20px;
+	max-height: 720px;
 	overflow: auto;
 	line-height: 1.55;
 }
+.pqc-response-box h1, .pqc-response-box h2, .pqc-response-box h3, .pqc-response-box h4 { margin-top: 18px; margin-bottom: 8px; }
+.pqc-response-box .pqc-md-table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+.pqc-response-box .pqc-md-table th, .pqc-response-box .pqc-md-table td { border: 1px solid #d0d7de; padding: 6px 10px; font-size: 14px; vertical-align: top; }
+.pqc-response-box .pqc-md-table th { background: #f6f8fa; text-align: left; }
+.pqc-response-box blockquote { border-left: 3px solid #d0d7de; margin: 12px 0; padding: 4px 12px; color: #555; }
+.pqc-response-box code { background: #f6f8fa; padding: 1px 5px; border-radius: 3px; font-family: Menlo, Consolas, monospace; font-size: 13px; }
+.pqc-response-box pre { background: #f6f8fa; padding: 12px; border-radius: 4px; overflow: auto; }
+.pqc-response-box ul, .pqc-response-box ol { padding-left: 22px; }
 .pqc-admin pre { background: #f6f7f7; border: 1px solid #ccd0d4; padding: 10px; white-space: pre-wrap; }

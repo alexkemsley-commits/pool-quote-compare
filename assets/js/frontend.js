@@ -78,9 +78,13 @@
 			}
 		}
 
-		function showResult(text) {
+		function showResult(html, fallbackText) {
 			result.hidden = false;
-			resultBody.textContent = text || '';
+			if (html) {
+				resultBody.innerHTML = html;
+			} else {
+				resultBody.textContent = fallbackText || '';
+			}
 		}
 
 		function pollOnce(id, token) {
@@ -95,8 +99,8 @@
 					var data = res.json.data;
 					var st   = data.status;
 
-					if (data.response) {
-						showResult(data.response);
+					if (data.response_html || data.response) {
+						showResult(data.response_html, data.response);
 					}
 					tickMeta();
 

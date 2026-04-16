@@ -132,6 +132,12 @@ class PQC_Frontend {
 				</div>
 				<div class="pqc-result-body" id="pqc-result-body"></div>
 				<p class="pqc-sent-note" id="pqc-sent-note" hidden></p>
+				<?php if ( ! empty( $settings['disclaimer'] ) ) : ?>
+					<div class="pqc-disclaimer" role="note">
+						<strong><?php esc_html_e( 'Please read before acting on this analysis', 'pool-quote-compare' ); ?></strong>
+						<p><?php echo wp_kses_post( $settings['disclaimer'] ); ?></p>
+					</div>
+				<?php endif; ?>
 			</div>
 
 			<section class="pqc-transparency">

@@ -5,7 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class PQC_Ajax {
 
-	const TOKEN_TTL = 1800;
+	const TOKEN_TTL = 3600;
 
 	public static function init() {
 		add_action( 'wp_ajax_pqc_submit', [ __CLASS__, 'handle_submit' ] );
@@ -14,8 +14,13 @@ class PQC_Ajax {
 		add_action( 'wp_ajax_pqc_status', [ __CLASS__, 'handle_status' ] );
 		add_action( 'wp_ajax_nopriv_pqc_status', [ __CLASS__, 'handle_status' ] );
 
-		add_action( 'wp_ajax_pqc_process', [ __CLASS__, 'handle_process' ] );
-		add_action( 'wp_ajax_nopriv_pqc_process', [ __CLASS__, 'handle_process' ] );
+		add_action( 'wp_ajax_pqc_download', [ __CLASS__, 'handle_download' ] );
+	}
+
+	private static function log( $msg ) {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( '[PQC] ' . $msg );
+		}
 	}
 
 	public static function handle_submit() {
@@ -43,7 +48,7 @@ class PQC_Ajax {
 		if ( ! empty( $_POST['priorities'] ) && is_array( $_POST['priorities'] ) ) {
 			foreach ( $_POST['priorities'] as $key ) {
 				$key = sanitize_key( $key );
-				if ( isset( $priority_labels[ $key ] ) && ! in_array( $key, $selected_priorities, true ) ) {
+				if ( isset( $priority_labels[ $key ] ) && ! in_array( $key, array_keys( $selected_priorities ), true ) ) {
 					$selected_priorities[ $key ] = $priority_labels[ $key ];
 				}
 				if ( count( $selected_priorities ) >= 2 ) {
@@ -123,74 +128,62 @@ class PQC_Ajax {
 		$token = wp_generate_password( 32, false, false );
 		set_transient( 'pqc_token_' . $submission_id, $token, self::TOKEN_TTL );
 
-		self::spawn_processor( $submission_id, $token );
-
-		wp_send_json_success( [
+		self::respond_then_process( [
 			'id'    => $submission_id,
 			'token' => $token,
-		] );
+		], $submission_id, $saved, $notes, $settings );
 	}
 
-	private static function spawn_processor( $submission_id, $token ) {
-		$url = admin_url( 'admin-ajax.php' );
-		wp_remote_post( $url, [
-			'timeout'   => 0.1,
-			'blocking'  => false,
-			'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
-			'cookies'   => [],
-			'body'      => [
-				'action' => 'pqc_process',
-				'id'     => (int) $submission_id,
-				'token'  => $token,
-			],
-		] );
-	}
+	/**
+	 * Send the JSON success response to the browser, close the connection,
+	 * then continue processing in the same PHP process. No loopback / spawn.
+	 */
+	private static function respond_then_process( array $response, $submission_id, array $saved, $notes, array $settings ) {
+		nocache_headers();
+		status_header( 200 );
+		header( 'Content-Type: application/json; charset=UTF-8' );
+		header( 'Connection: close' );
 
-	public static function handle_process() {
+		$payload = wp_json_encode( [ 'success' => true, 'data' => $response ] );
+		header( 'Content-Length: ' . strlen( $payload ) );
+		echo $payload;
+
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			fastcgi_finish_request();
+		} else {
+			@ob_end_flush();
+			@flush();
+		}
+
 		ignore_user_abort( true );
 		@set_time_limit( 0 );
 		if ( function_exists( 'session_write_close' ) ) {
 			@session_write_close();
 		}
 
-		$submission_id = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-		$token         = isset( $_POST['token'] ) ? (string) $_POST['token'] : '';
-
-		if ( ! $submission_id || ! $token ) {
-			wp_die( '', '', [ 'response' => 400 ] );
-		}
-		$expected = get_transient( 'pqc_token_' . $submission_id );
-		if ( ! $expected || ! hash_equals( $expected, $token ) ) {
-			wp_die( '', '', [ 'response' => 403 ] );
+		try {
+			self::run_comparison( $submission_id, $saved, $notes, $settings );
+		} catch ( Throwable $e ) {
+			self::log( 'Exception in run_comparison: ' . $e->getMessage() );
+			self::mark_failed( $submission_id, 'Internal error: ' . $e->getMessage() );
 		}
 
-		$row = PQC_Storage::get( $submission_id );
-		if ( ! $row ) {
-			wp_die( '', '', [ 'response' => 404 ] );
-		}
-		if ( in_array( $row->status, [ 'completed', 'partial', 'failed' ], true ) ) {
-			wp_die( '', '', [ 'response' => 200 ] );
-		}
+		exit;
+	}
 
+	private static function run_comparison( $submission_id, array $saved, $notes, array $settings ) {
 		PQC_Storage::update( $submission_id, [ 'status' => 'processing' ] );
 
-		$settings = pqc_get_settings();
-		$files    = json_decode( $row->files_json, true );
-		if ( ! is_array( $files ) || count( $files ) < 2 ) {
-			self::mark_failed( $submission_id, __( 'Saved files missing.', 'pool-quote-compare' ) );
-			wp_die( '', '', [ 'response' => 500 ] );
-		}
-
 		$doc_blocks = [];
-		foreach ( $files as $f ) {
+		foreach ( $saved as $f ) {
 			if ( empty( $f['path'] ) || ! file_exists( $f['path'] ) ) {
 				self::mark_failed( $submission_id, __( 'Saved file is missing on disk.', 'pool-quote-compare' ) );
-				wp_die( '', '', [ 'response' => 500 ] );
+				return;
 			}
 			$block = PQC_Parser::build_document_block( $f['path'], $f['original'] );
 			if ( is_wp_error( $block ) ) {
 				self::mark_failed( $submission_id, $block->get_error_message() );
-				wp_die( '', '', [ 'response' => 500 ] );
+				return;
 			}
 			$doc_blocks[] = $block;
 		}
@@ -207,12 +200,12 @@ class PQC_Ajax {
 			}
 		} );
 
-		$result = PQC_Claude::compare( $settings, $doc_blocks, $row->customer_notes );
+		$result = PQC_Claude::compare( $settings, $doc_blocks, $notes );
 		PQC_Claude::set_progress_callback( null );
 
 		if ( is_wp_error( $result ) ) {
 			self::mark_failed( $submission_id, $result->get_error_message() );
-			wp_die( '', '', [ 'response' => 200 ] );
+			return;
 		}
 
 		$status = ! empty( $result['error'] ) ? 'partial' : 'completed';
@@ -225,8 +218,6 @@ class PQC_Ajax {
 
 		self::send_customer_email( $submission_id );
 		delete_transient( 'pqc_token_' . $submission_id );
-
-		wp_die( '', '', [ 'response' => 200 ] );
 	}
 
 	public static function handle_status() {
@@ -241,20 +232,71 @@ class PQC_Ajax {
 		if ( ! $row ) {
 			wp_send_json_error( [ 'message' => 'Not found.' ], 404 );
 		}
-		// For terminal states the token may be cleared. Verify token matches OR submission is terminal.
 		$is_terminal = in_array( $row->status, [ 'completed', 'failed', 'partial' ], true );
 		if ( ! $is_terminal && ( ! $expected || ! hash_equals( $expected, $token ) ) ) {
 			wp_send_json_error( [ 'message' => 'Forbidden.' ], 403 );
 		}
 
+		$raw  = (string) $row->response;
+		$html = $raw !== '' ? PQC_Markdown::render( $raw ) : '';
+
 		wp_send_json_success( [
-			'id'       => (int) $row->id,
-			'status'   => $row->status,
-			'response' => (string) $row->response,
-			'length'   => strlen( (string) $row->response ),
-			'error'    => $row->error_message,
-			'emailed'  => ! empty( $row->emailed_at ),
+			'id'            => (int) $row->id,
+			'status'        => $row->status,
+			'response'      => $raw,
+			'response_html' => $html,
+			'length'        => strlen( $raw ),
+			'error'         => $row->error_message,
+			'emailed'       => ! empty( $row->emailed_at ),
 		] );
+	}
+
+	public static function handle_download() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Forbidden', '', [ 'response' => 403 ] );
+		}
+		$id    = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
+		$index = isset( $_GET['i'] ) ? (int) $_GET['i'] : -1;
+		$nonce = isset( $_GET['_wpnonce'] ) ? $_GET['_wpnonce'] : '';
+		if ( ! wp_verify_nonce( $nonce, 'pqc_download_' . $id ) ) {
+			wp_die( 'Bad nonce', '', [ 'response' => 403 ] );
+		}
+		$row = PQC_Storage::get( $id );
+		if ( ! $row ) {
+			wp_die( 'Not found', '', [ 'response' => 404 ] );
+		}
+		$files = json_decode( $row->files_json, true );
+		if ( ! is_array( $files ) || ! isset( $files[ $index ] ) ) {
+			wp_die( 'File not found', '', [ 'response' => 404 ] );
+		}
+		$file = $files[ $index ];
+		$path = isset( $file['path'] ) ? $file['path'] : '';
+
+		$base = realpath( PQC_Storage::upload_dir() );
+		$real = realpath( $path );
+		if ( ! $base || ! $real || strpos( $real, $base ) !== 0 || ! is_file( $real ) ) {
+			wp_die( 'File unavailable', '', [ 'response' => 404 ] );
+		}
+
+		$original = isset( $file['original'] ) ? $file['original'] : basename( $real );
+		$ext      = strtolower( pathinfo( $original, PATHINFO_EXTENSION ) );
+		$mime     = 'application/octet-stream';
+		if ( $ext === 'pdf' ) {
+			$mime = 'application/pdf';
+		} elseif ( $ext === 'docx' ) {
+			$mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+		} elseif ( $ext === 'doc' ) {
+			$mime = 'application/msword';
+		}
+
+		nocache_headers();
+		header( 'Content-Type: ' . $mime );
+		header( 'Content-Disposition: attachment; filename="' . rawurlencode( $original ) . '"' );
+		header( 'Content-Length: ' . filesize( $real ) );
+		header( 'X-Content-Type-Options: nosniff' );
+		@ob_end_clean();
+		readfile( $real );
+		exit;
 	}
 
 	public static function send_customer_email( $submission_id ) {
@@ -269,11 +311,15 @@ class PQC_Ajax {
 		$from_addr = ! empty( $settings['email_from_address'] ) ? $settings['email_from_address'] : get_option( 'admin_email' );
 		$subject   = ! empty( $settings['email_subject'] ) ? $settings['email_subject'] : __( 'Your pool quote comparison', 'pool-quote-compare' );
 
-		$intro      = wpautop( wp_kses_post( $settings['email_intro'] ) );
-		$analysis   = wpautop( esc_html( $row->response ) );
-		$disclaimer = '<hr/><p style="font-size:12px;color:#555;">' . esc_html__( 'This comparison was generated by an AI assistant. It is decision support, not a decision. Please read the contracts in full before committing any deposit.', 'pool-quote-compare' ) . '</p>';
+		$intro         = wpautop( wp_kses_post( $settings['email_intro'] ) );
+		$analysis      = PQC_Markdown::render( $row->response );
+		$disclaimer_tx = ! empty( $settings['disclaimer'] ) ? $settings['disclaimer'] : '';
+		$disclaimer    = $disclaimer_tx
+			? '<div style="margin-top:24px;padding:14px 16px;border:1px solid #f0c36d;background:#fff8e1;border-radius:6px;font-size:13px;line-height:1.5;color:#5a3e00;"><strong>' . esc_html__( 'Please read before acting on this analysis', 'pool-quote-compare' ) . '</strong><br/>' . wp_kses_post( wpautop( $disclaimer_tx ) ) . '</div>'
+			: '';
 
-		$body  = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;">';
+		$body  = PQC_Markdown::email_style_wrap( '' );
+		$body .= '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:800px;">';
 		$body .= $intro . $analysis . $disclaimer;
 		$body .= '</div>';
 
