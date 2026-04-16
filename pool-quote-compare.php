@@ -24,6 +24,7 @@ define( 'PQC_TABLE', 'pqc_submissions' );
 require_once PQC_PLUGIN_DIR . 'includes/class-pqc-storage.php';
 require_once PQC_PLUGIN_DIR . 'includes/class-pqc-parser.php';
 require_once PQC_PLUGIN_DIR . 'includes/class-pqc-markdown.php';
+require_once PQC_PLUGIN_DIR . 'includes/class-pqc-companies-house.php';
 require_once PQC_PLUGIN_DIR . 'includes/class-pqc-claude.php';
 require_once PQC_PLUGIN_DIR . 'includes/class-pqc-admin.php';
 require_once PQC_PLUGIN_DIR . 'includes/class-pqc-frontend.php';
@@ -47,11 +48,12 @@ function pqc_default_system_prompt() {
 
 function pqc_get_settings() {
 	$defaults = [
-		'api_key'             => '',
-		'system_prompt'       => pqc_default_system_prompt(),
-		'model'               => 'claude-opus-4-7',
-		'max_tokens'          => 16000,
-		'enable_web_search'   => 1,
+		'api_key'                 => '',
+		'companies_house_api_key' => '',
+		'system_prompt'           => pqc_default_system_prompt(),
+		'model'                   => 'claude-opus-4-7',
+		'max_tokens'              => 16000,
+		'enable_web_search'       => 1,
 		'max_file_mb'         => 25,
 		'max_files'           => 5,
 		'email_from_name'     => get_bloginfo( 'name' ),

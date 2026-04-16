@@ -63,24 +63,37 @@ class PQC_Claude {
 			],
 		];
 
+		$tools = [];
 		if ( ! empty( $settings['enable_web_search'] ) ) {
-			$body['tools'] = [
-				[ 'type' => 'web_search_20260209', 'name' => 'web_search' ],
-			];
+			$tools[] = [ 'type' => 'web_search_20260209', 'name' => 'web_search' ];
+		}
+		if ( class_exists( 'PQC_CompaniesHouse' ) && PQC_CompaniesHouse::is_configured() ) {
+			$tools[] = PQC_CompaniesHouse::tool_definition();
+		}
+		if ( ! empty( $tools ) ) {
+			$body['tools'] = $tools;
 		}
 
 		return self::run_with_pause_turn_loop( $settings['api_key'], $body );
 	}
 
+	public static function handle_custom_tool( $name, $input ) {
+		if ( $name === 'companies_house_lookup' && class_exists( 'PQC_CompaniesHouse' ) ) {
+			return PQC_CompaniesHouse::execute( is_array( $input ) ? $input : [] );
+		}
+		return 'Error: unknown tool "' . $name . '".';
+	}
+
 	private static function run_with_pause_turn_loop( $api_key, array $body ) {
-		$max_iterations = 6;
+		$max_iterations = 20;
 		$iter           = 0;
 		$accumulated    = [
-			'text'        => '',
-			'searches'    => [],
-			'usage'       => [],
-			'stop_reason' => '',
-			'model'       => '',
+			'text'         => '',
+			'searches'     => [],
+			'tool_calls'   => [],
+			'usage'        => [],
+			'stop_reason'  => '',
+			'model'        => '',
 		];
 
 		while ( $iter < $max_iterations ) {
@@ -88,31 +101,68 @@ class PQC_Claude {
 			$state = self::stream_once( $api_key, $body );
 			if ( is_wp_error( $state ) ) {
 				if ( $accumulated['text'] !== '' ) {
-					$accumulated['error']        = $state->get_error_message();
-					$accumulated['stop_reason']  = 'error';
+					$accumulated['error']       = $state->get_error_message();
+					$accumulated['stop_reason'] = 'error';
 					return $accumulated;
 				}
 				return $state;
 			}
 
-			$accumulated['text']        .= ( $accumulated['text'] !== '' ? "\n\n" : '' ) . $state['text'];
-			$accumulated['searches']     = array_merge( $accumulated['searches'], $state['searches'] );
-			$accumulated['usage']        = self::merge_usage( $accumulated['usage'], $state['usage'] );
-			$accumulated['stop_reason']  = $state['stop_reason'];
-			$accumulated['model']        = $state['model'] ?: $accumulated['model'];
+			if ( $state['text'] !== '' ) {
+				$accumulated['text'] .= ( $accumulated['text'] !== '' ? "\n\n" : '' ) . $state['text'];
+			}
+			$accumulated['searches']    = array_merge( $accumulated['searches'], $state['searches'] );
+			$accumulated['usage']       = self::merge_usage( $accumulated['usage'], $state['usage'] );
+			$accumulated['stop_reason'] = $state['stop_reason'];
+			$accumulated['model']       = $state['model'] ?: $accumulated['model'];
 
-			if ( $state['stop_reason'] !== 'pause_turn' ) {
+			// pause_turn: server-side tool iteration cap hit — resume.
+			if ( $state['stop_reason'] === 'pause_turn' ) {
+				if ( ! empty( $state['assistant_blocks'] ) ) {
+					$body['messages'][] = [ 'role' => 'assistant', 'content' => $state['assistant_blocks'] ];
+					continue;
+				}
 				return $accumulated;
 			}
 
-			if ( ! empty( $state['assistant_blocks'] ) ) {
+			// tool_use: a custom (client-side) tool was called — execute it and feed results back.
+			if ( $state['stop_reason'] === 'tool_use' && ! empty( $state['assistant_blocks'] ) ) {
+				$tool_uses = [];
+				foreach ( $state['assistant_blocks'] as $blk ) {
+					if ( isset( $blk['type'] ) && $blk['type'] === 'tool_use' ) {
+						$tool_uses[] = $blk;
+					}
+				}
+				if ( empty( $tool_uses ) ) {
+					return $accumulated;
+				}
 				$body['messages'][] = [ 'role' => 'assistant', 'content' => $state['assistant_blocks'] ];
-			} else {
-				return $accumulated;
+
+				$tool_results = [];
+				foreach ( $tool_uses as $tu ) {
+					$name   = isset( $tu['name'] ) ? $tu['name'] : '';
+					$input  = isset( $tu['input'] ) ? $tu['input'] : [];
+					$output = self::handle_custom_tool( $name, $input );
+
+					$accumulated['tool_calls'][] = [
+						'name'  => $name,
+						'input' => $input,
+					];
+
+					$tool_results[] = [
+						'type'        => 'tool_result',
+						'tool_use_id' => isset( $tu['id'] ) ? $tu['id'] : '',
+						'content'     => is_string( $output ) ? $output : wp_json_encode( $output ),
+					];
+				}
+				$body['messages'][] = [ 'role' => 'user', 'content' => $tool_results ];
+				continue;
 			}
+
+			return $accumulated;
 		}
 
-		$accumulated['error'] = __( 'Server-tool loop exceeded retry limit.', 'pool-quote-compare' );
+		$accumulated['error'] = __( 'Tool-use loop exceeded retry limit.', 'pool-quote-compare' );
 		return $accumulated;
 	}
 

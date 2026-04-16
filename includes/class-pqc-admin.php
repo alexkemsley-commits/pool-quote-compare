@@ -54,6 +54,9 @@ class PQC_Admin {
 		if ( isset( $input['api_key'] ) ) {
 			$clean['api_key'] = trim( sanitize_text_field( $input['api_key'] ) );
 		}
+		if ( isset( $input['companies_house_api_key'] ) ) {
+			$clean['companies_house_api_key'] = trim( sanitize_text_field( $input['companies_house_api_key'] ) );
+		}
 		if ( isset( $input['system_prompt'] ) ) {
 			$clean['system_prompt'] = wp_unslash( $input['system_prompt'] );
 		}
@@ -136,7 +139,19 @@ class PQC_Admin {
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Web search', 'pool-quote-compare' ); ?></th>
 						<td>
-							<label><input type="checkbox" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[enable_web_search]" value="1" <?php checked( 1, $settings['enable_web_search'] ); ?> /> <?php esc_html_e( 'Let the agent use the web_search tool to verify facts (equipment models, company info, etc.).', 'pool-quote-compare' ); ?></label>
+							<label><input type="checkbox" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[enable_web_search]" value="1" <?php checked( 1, $settings['enable_web_search'] ); ?> /> <?php esc_html_e( 'Let the agent use the web_search tool to verify facts (Google reviews, Trustpilot, equipment datasheets, news).', 'pool-quote-compare' ); ?></label>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="pqc_ch_api_key"><?php esc_html_e( 'Companies House API key', 'pool-quote-compare' ); ?></label></th>
+						<td>
+							<input type="password" id="pqc_ch_api_key" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[companies_house_api_key]" value="<?php echo esc_attr( $settings['companies_house_api_key'] ); ?>" class="regular-text" autocomplete="off" />
+							<p class="description"><?php
+								printf(
+									esc_html__( 'Free UK Companies House API key (%s). When set, the agent can look up legal entity, incorporation, officers, filings, PSCs and charges for every company named in a quote — authoritative data, not brochure claims.', 'pool-quote-compare' ),
+									'<a href="https://developer.company-information.service.gov.uk/" target="_blank" rel="noopener">developer.company-information.service.gov.uk</a>'
+								);
+							?></p>
 						</td>
 					</tr>
 				</table>
