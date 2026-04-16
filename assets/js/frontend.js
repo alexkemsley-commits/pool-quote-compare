@@ -7,23 +7,57 @@
 
 		var priorityInputs = form.querySelectorAll('input[data-pqc-priority]');
 		var priorityWarn   = document.getElementById('pqc-priority-warning');
-		function enforcePriorityLimit() {
-			var checked = form.querySelectorAll('input[data-pqc-priority]:checked');
-			var atMax   = checked.length >= 2;
+		var PRIORITY_MAX   = 2;
+
+		function countChecked() {
+			return form.querySelectorAll('input[data-pqc-priority]:checked').length;
+		}
+
+		function enforcePriorityLimit(e) {
+			// If the user just checked a box that puts us over the cap, revert it.
+			if (e && e.target && e.target.checked && countChecked() > PRIORITY_MAX) {
+				e.target.checked = false;
+				if (priorityWarn) {
+					priorityWarn.hidden = false;
+					priorityWarn.textContent = 'You can only pick ' + PRIORITY_MAX + '. Untick one to swap.';
+				}
+				// Flash a brief highlight so the user sees what happened.
+				if (e.target.parentNode) {
+					e.target.parentNode.classList.add('pqc-priority-flash');
+					setTimeout(function () {
+						if (e.target.parentNode) e.target.parentNode.classList.remove('pqc-priority-flash');
+					}, 600);
+				}
+				return;
+			}
+
+			var atMax = countChecked() >= PRIORITY_MAX;
 			for (var i = 0; i < priorityInputs.length; i++) {
-				if (!priorityInputs[i].checked) {
-					priorityInputs[i].disabled = atMax;
-					priorityInputs[i].parentNode.classList.toggle('is-disabled', atMax);
+				var input = priorityInputs[i];
+				var parent = input.parentNode;
+				if (input.checked) {
+					input.disabled = false;
+					if (parent) parent.classList.remove('is-disabled');
+				} else {
+					input.disabled = atMax;
+					if (parent) parent.classList.toggle('is-disabled', atMax);
 				}
 			}
 			if (priorityWarn) {
-				priorityWarn.hidden = !atMax;
-				if (atMax) priorityWarn.textContent = 'Two picked. Untick one to swap.';
+				if (atMax) {
+					priorityWarn.hidden = false;
+					priorityWarn.textContent = PRIORITY_MAX + ' picked. Untick one to swap.';
+				} else {
+					priorityWarn.hidden = true;
+					priorityWarn.textContent = '';
+				}
 			}
 		}
+
 		for (var p = 0; p < priorityInputs.length; p++) {
 			priorityInputs[p].addEventListener('change', enforcePriorityLimit);
 		}
+		enforcePriorityLimit();
 
 		var status     = document.getElementById('pqc-status');
 		var submitBtn  = form.querySelector('.pqc-submit');

@@ -44,6 +44,12 @@
 .pqc-priority input:checked ~ .pqc-priority-title { color: #0b5fff; }
 .pqc-priority:has(input:checked) { background: #eef4ff; border-color: #0b5fff; box-shadow: 0 0 0 2px rgba(11,95,255,.12); }
 .pqc-priority.is-disabled { opacity: .45; cursor: not-allowed; }
+.pqc-priority.is-disabled input { pointer-events: none; }
+.pqc-priority-flash { animation: pqc-priority-flash 0.6s ease-out; }
+@keyframes pqc-priority-flash {
+	0%, 100% { background: inherit; border-color: inherit; }
+	30% { background: #fdecea; border-color: #c62828; box-shadow: 0 0 0 2px rgba(198,40,40,.2); }
+}
 
 .pqc-submit {
 	background: #0b5fff;
