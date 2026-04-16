@@ -23,62 +23,55 @@ class PQC_Frontend {
 		wp_enqueue_style( 'pqc-frontend' );
 		wp_enqueue_script( 'pqc-frontend' );
 		wp_localize_script( 'pqc-frontend', 'PQC', [
-			'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
-			'nonce'    => wp_create_nonce( 'pqc_submit' ),
-			'maxFiles' => $max_n,
-			'maxBytes' => $max_mb * 1024 * 1024,
-			'i18n'     => [
-				'tooMany'      => sprintf( __( 'Please upload no more than %d files.', 'pool-quote-compare' ), $max_n ),
-				'tooFew'       => __( 'Please upload at least 2 quotes to compare.', 'pool-quote-compare' ),
-				'tooBig'       => sprintf( __( 'Each file must be under %d MB.', 'pool-quote-compare' ), $max_mb ),
-				'uploading'    => __( 'Uploading your quotes…', 'pool-quote-compare' ),
-				'queued'       => __( 'Queued — starting the agent…', 'pool-quote-compare' ),
-				'reading'      => __( 'Reading your quotes…', 'pool-quote-compare' ),
-				'writing'      => __( 'Writing your comparison live…', 'pool-quote-compare' ),
-				'done'         => __( 'Done.', 'pool-quote-compare' ),
-				'donePartial'  => __( 'Finished (partial — see below).', 'pool-quote-compare' ),
-				'failed'       => __( 'Analysis failed. Please try again or contact us.', 'pool-quote-compare' ),
-				'workingTitle' => __( 'Working on your comparison…', 'pool-quote-compare' ),
-				'resultTitle'  => __( 'Your comparison', 'pool-quote-compare' ),
-				'emailed'      => __( 'A copy has been emailed to you.', 'pool-quote-compare' ),
-				'error'        => __( 'Something went wrong. Please try again or contact us.', 'pool-quote-compare' ),
+			'ajaxUrl'        => admin_url( 'admin-ajax.php' ),
+			'nonce'          => wp_create_nonce( 'pqc_submit' ),
+			'maxFiles'       => $max_n,
+			'maxBytes'       => $max_mb * 1024 * 1024,
+			'thankYouUrl'    => ! empty( $settings['thank_you_url'] ) ? esc_url( $settings['thank_you_url'] ) : '',
+			'i18n'           => [
+				'tooMany'   => sprintf( __( 'Please upload no more than %d files.', 'pool-quote-compare' ), $max_n ),
+				'tooFew'    => __( 'Please upload at least 2 quotes to compare.', 'pool-quote-compare' ),
+				'tooBig'    => sprintf( __( 'Each file must be under %d MB.', 'pool-quote-compare' ), $max_mb ),
+				'uploading' => __( 'Uploading your quotes — this can take a minute for large files. Please don\'t close the page.', 'pool-quote-compare' ),
+				'error'     => __( 'Something went wrong. Please try again or contact us.', 'pool-quote-compare' ),
 			],
 		] );
 
 		ob_start();
 		?>
 		<div class="pqc-wrapper">
-			<form class="pqc-form" id="pqc-form" enctype="multipart/form-data">
+			<form class="pqc-form" id="pqc-form" enctype="multipart/form-data" novalidate>
 
 				<div class="pqc-row">
-					<label for="pqc-name"><?php esc_html_e( 'Your name', 'pool-quote-compare' ); ?></label>
+					<label for="pqc-name"><?php esc_html_e( 'Your name', 'pool-quote-compare' ); ?> <span class="pqc-required">*</span></label>
 					<input id="pqc-name" name="customer_name" type="text" required />
 				</div>
 
 				<div class="pqc-row">
-					<label for="pqc-email"><?php esc_html_e( 'Your email (we will send the comparison here)', 'pool-quote-compare' ); ?></label>
-					<input id="pqc-email" name="customer_email" type="email" required />
+					<label for="pqc-email"><?php esc_html_e( 'Your email', 'pool-quote-compare' ); ?> <span class="pqc-required">*</span></label>
+					<input id="pqc-email" name="customer_email" type="email" required autocomplete="email" />
+					<p class="pqc-hint"><?php esc_html_e( 'Required. The full comparison is delivered by email — there is no on-page result.', 'pool-quote-compare' ); ?></p>
 				</div>
 
 				<?php
 				$priority_options = [
-					'cheap'      => [
+					'cheap'     => [
 						'title'   => __( 'Cheap', 'pool-quote-compare' ),
 						'subtext' => __( 'Lowest upfront price you can defensibly justify.', 'pool-quote-compare' ),
 					],
-					'quick'      => [
+					'quick'     => [
 						'title'   => __( 'Quick', 'pool-quote-compare' ),
 						'subtext' => __( 'Fastest realistic install timeline, in the water sooner.', 'pool-quote-compare' ),
 					],
-					'good'       => [
+					'good'      => [
 						'title'   => __( 'Good', 'pool-quote-compare' ),
 						'subtext' => __( 'Premium specification, finish and equipment quality.', 'pool-quote-compare' ),
 					],
-					'cheap_run'  => [
+					'cheap_run' => [
 						'title'   => __( 'Cheap to run long term', 'pool-quote-compare' ),
 						'subtext' => __( 'Energy-efficient pump, heating and cover — lowest 10-year running cost.', 'pool-quote-compare' ),
 					],
-					'low_risk'   => [
+					'low_risk'  => [
 						'title'   => __( 'Low risk', 'pool-quote-compare' ),
 						'subtext' => __( 'Accountable warranty, watertight scope, no surprise extras during the build.', 'pool-quote-compare' ),
 					],
@@ -105,7 +98,7 @@ class PQC_Frontend {
 				</div>
 
 				<div class="pqc-row">
-					<label for="pqc-files"><?php printf( esc_html__( 'Upload 2 to %d quotes (PDF or Word)', 'pool-quote-compare' ), (int) $max_n ); ?></label>
+					<label for="pqc-files"><?php printf( esc_html__( 'Upload 2 to %d quotes (PDF or Word) %s', 'pool-quote-compare' ), (int) $max_n, '<span class="pqc-required">*</span>' ); ?></label>
 					<input id="pqc-files" name="quotes[]" type="file" accept=".pdf,.docx,.doc,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple required />
 					<p class="pqc-hint"><?php printf( esc_html__( 'Max %1$d MB per file. Files are saved securely and used only to generate your comparison.', 'pool-quote-compare' ), (int) $max_mb ); ?></p>
 				</div>
@@ -121,17 +114,10 @@ class PQC_Frontend {
 				<div class="pqc-status" id="pqc-status" hidden></div>
 			</form>
 
-			<div class="pqc-result" id="pqc-result" hidden>
-				<div class="pqc-result-header">
-					<h3 id="pqc-result-title"><?php esc_html_e( 'Working on your comparison…', 'pool-quote-compare' ); ?></h3>
-					<div class="pqc-progress" id="pqc-progress" aria-live="polite">
-						<span class="pqc-spinner" id="pqc-spinner"></span>
-						<span class="pqc-progress-text" id="pqc-progress-text"><?php esc_html_e( 'Reading your quotes…', 'pool-quote-compare' ); ?></span>
-						<span class="pqc-progress-meta" id="pqc-progress-meta"></span>
-					</div>
-				</div>
-				<div class="pqc-result-body" id="pqc-result-body"></div>
-				<p class="pqc-sent-note" id="pqc-sent-note" hidden></p>
+			<div class="pqc-thankyou" id="pqc-thankyou" hidden>
+				<h3><?php echo esc_html( $settings['thank_you_heading'] ); ?></h3>
+				<div class="pqc-thankyou-body"><?php echo wp_kses_post( wpautop( $settings['thank_you_message'] ) ); ?></div>
+				<p class="pqc-thankyou-email" id="pqc-thankyou-email" hidden></p>
 				<?php if ( ! empty( $settings['disclaimer'] ) ) : ?>
 					<div class="pqc-disclaimer" role="note">
 						<strong><?php esc_html_e( 'Please read before acting on this analysis', 'pool-quote-compare' ); ?></strong>
@@ -147,9 +133,10 @@ class PQC_Frontend {
 					'<code>' . esc_html( $settings['model'] ) . '</code>'
 				); ?></p>
 				<?php if ( ! empty( $settings['enable_web_search'] ) ) : ?>
-					<p><?php esc_html_e( 'The agent may use web search to verify equipment models, company details, or market pricing. Any sources used are disclosed in the comparison.', 'pool-quote-compare' ); ?></p>
-				<?php else : ?>
-					<p><?php esc_html_e( 'Web search is currently disabled — analysis is based only on the information in your uploaded quotes.', 'pool-quote-compare' ); ?></p>
+					<p><?php esc_html_e( 'The agent will use web search to check Google reviews, Trustpilot, Houzz, Checkatrade and Facebook, and to verify equipment and company claims. Sources are cited in the comparison.', 'pool-quote-compare' ); ?></p>
+				<?php endif; ?>
+				<?php if ( class_exists( 'PQC_CompaniesHouse' ) && PQC_CompaniesHouse::is_configured() ) : ?>
+					<p><?php esc_html_e( 'The agent is also connected to the UK Companies House register and will verify the legal status, filings, directors and owners of every business named in your quotes.', 'pool-quote-compare' ); ?></p>
 				<?php endif; ?>
 
 				<details class="pqc-prompt-details">

@@ -18,29 +18,19 @@
 			}
 			if (priorityWarn) {
 				priorityWarn.hidden = !atMax;
-				if (atMax) {
-					priorityWarn.textContent = 'Two picked. Untick one to swap.';
-				}
+				if (atMax) priorityWarn.textContent = 'Two picked. Untick one to swap.';
 			}
 		}
 		for (var p = 0; p < priorityInputs.length; p++) {
 			priorityInputs[p].addEventListener('change', enforcePriorityLimit);
 		}
 
-		var status      = document.getElementById('pqc-status');
-		var result      = document.getElementById('pqc-result');
-		var resultTitle = document.getElementById('pqc-result-title');
-		var resultBody  = document.getElementById('pqc-result-body');
-		var sentNote    = document.getElementById('pqc-sent-note');
-		var submitBtn   = form.querySelector('.pqc-submit');
-		var filesInput  = document.getElementById('pqc-files');
-		var spinner     = document.getElementById('pqc-spinner');
-		var progressTxt = document.getElementById('pqc-progress-text');
-		var progressMeta = document.getElementById('pqc-progress-meta');
-		var progressBox = document.getElementById('pqc-progress');
-
-		var pollTimer = null;
-		var startedAt = 0;
+		var status     = document.getElementById('pqc-status');
+		var submitBtn  = form.querySelector('.pqc-submit');
+		var filesInput = document.getElementById('pqc-files');
+		var thanks     = document.getElementById('pqc-thankyou');
+		var thanksEmail = document.getElementById('pqc-thankyou-email');
+		var emailInput = document.getElementById('pqc-email');
 
 		function showStatus(msg, cls) {
 			status.hidden = false;
@@ -53,105 +43,25 @@
 			status.textContent = '';
 		}
 
-		function fmtSecs(s) {
-			if (s < 60) return s + 's';
-			var m = Math.floor(s / 60);
-			var r = s % 60;
-			return m + 'm ' + (r < 10 ? '0' + r : r) + 's';
-		}
-
-		function setProgress(label) {
-			if (progressTxt) progressTxt.textContent = label;
-		}
-
-		function tickMeta() {
-			if (!progressMeta) return;
-			var elapsed = Math.floor((Date.now() - startedAt) / 1000);
-			var chars   = resultBody.textContent.length;
-			progressMeta.textContent = 'Elapsed ' + fmtSecs(elapsed) + (chars ? ' · ' + chars.toLocaleString() + ' characters written' : '');
-		}
-
-		function stopPolling() {
-			if (pollTimer) {
-				clearTimeout(pollTimer);
-				pollTimer = null;
+		function showInlineThanks(email) {
+			form.hidden = true;
+			thanks.hidden = false;
+			if (email && thanksEmail) {
+				thanksEmail.hidden = false;
+				thanksEmail.textContent = 'We will email your comparison to: ' + email;
 			}
-		}
-
-		function showResult(html, fallbackText) {
-			result.hidden = false;
-			if (html) {
-				resultBody.innerHTML = html;
-			} else {
-				resultBody.textContent = fallbackText || '';
-			}
-		}
-
-		function pollOnce(id, token) {
-			var url = PQC.ajaxUrl + '?action=pqc_status&id=' + encodeURIComponent(id) + '&token=' + encodeURIComponent(token);
-			fetch(url, { credentials: 'same-origin' })
-				.then(function (r) { return r.json().then(function (j) { return { ok: r.ok, json: j }; }); })
-				.then(function (res) {
-					if (!res.ok || !res.json || !res.json.success) {
-						pollTimer = setTimeout(function () { pollOnce(id, token); }, 4000);
-						return;
-					}
-					var data = res.json.data;
-					var st   = data.status;
-
-					if (data.response_html || data.response) {
-						showResult(data.response_html, data.response);
-					}
-					tickMeta();
-
-					switch (st) {
-						case 'queued':
-							setProgress(PQC.i18n.queued);
-							break;
-						case 'processing':
-							setProgress(PQC.i18n.reading);
-							break;
-						case 'streaming':
-							setProgress(PQC.i18n.writing);
-							break;
-						case 'completed':
-						case 'partial':
-							setProgress(st === 'completed' ? PQC.i18n.done : PQC.i18n.donePartial);
-							resultTitle.textContent = PQC.i18n.resultTitle;
-							if (spinner) spinner.classList.add('is-done');
-							if (data.emailed) {
-								sentNote.hidden = false;
-								sentNote.textContent = PQC.i18n.emailed;
-							}
-							submitBtn.disabled = false;
-							stopPolling();
-							return;
-						case 'failed':
-							setProgress(PQC.i18n.failed);
-							progressBox.classList.add('is-error');
-							if (data.error) {
-								resultBody.textContent = data.error;
-							}
-							submitBtn.disabled = false;
-							stopPolling();
-							return;
-					}
-
-					pollTimer = setTimeout(function () { pollOnce(id, token); }, 2500);
-				})
-				.catch(function () {
-					pollTimer = setTimeout(function () { pollOnce(id, token); }, 4000);
-				});
+			thanks.scrollIntoView({ behavior: 'smooth', block: 'start' });
 		}
 
 		form.addEventListener('submit', function (e) {
 			e.preventDefault();
 			hideStatus();
-			result.hidden = true;
-			resultBody.textContent = '';
-			sentNote.hidden = true;
-			if (progressBox) progressBox.classList.remove('is-error');
-			if (spinner) spinner.classList.remove('is-done');
+
+			if (!emailInput.value || !/.+@.+\..+/.test(emailInput.value)) {
+				showStatus('Please enter a valid email address. The comparison is delivered by email.', 'is-error');
+				emailInput.focus();
+				return;
+			}
 
 			var files = filesInput.files;
 			if (!files || files.length < 2) {
@@ -189,18 +99,13 @@
 						showStatus(msg, 'is-error');
 						return;
 					}
+					if (PQC.thankYouUrl) {
+						var sep = PQC.thankYouUrl.indexOf('?') >= 0 ? '&' : '?';
+						window.location.href = PQC.thankYouUrl + sep + 'pqc_submitted=1';
+						return;
+					}
 					hideStatus();
-					var id    = res.json.data.id;
-					var token = res.json.data.token;
-
-					startedAt = Date.now();
-					result.hidden = false;
-					resultTitle.textContent = PQC.i18n.workingTitle;
-					setProgress(PQC.i18n.queued);
-					tickMeta();
-					setInterval(tickMeta, 1000);
-
-					setTimeout(function () { pollOnce(id, token); }, 800);
+					showInlineThanks(emailInput.value);
 				})
 				.catch(function () {
 					submitBtn.disabled = false;

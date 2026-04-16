@@ -88,6 +88,15 @@ class PQC_Admin {
 		if ( isset( $input['disclaimer'] ) ) {
 			$clean['disclaimer'] = wp_kses_post( $input['disclaimer'] );
 		}
+		if ( isset( $input['thank_you_url'] ) ) {
+			$clean['thank_you_url'] = esc_url_raw( trim( $input['thank_you_url'] ) );
+		}
+		if ( isset( $input['thank_you_heading'] ) ) {
+			$clean['thank_you_heading'] = sanitize_text_field( $input['thank_you_heading'] );
+		}
+		if ( isset( $input['thank_you_message'] ) ) {
+			$clean['thank_you_message'] = wp_kses_post( $input['thank_you_message'] );
+		}
 		$clean['bcc_admin'] = ! empty( $input['bcc_admin'] ) ? 1 : 0;
 
 		return $clean;
@@ -200,6 +209,26 @@ class PQC_Admin {
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Admin copy', 'pool-quote-compare' ); ?></th>
 						<td><label><input type="checkbox" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[bcc_admin]" value="1" <?php checked( 1, $settings['bcc_admin'] ); ?> /> <?php esc_html_e( 'BCC the site admin on every customer email.', 'pool-quote-compare' ); ?></label></td>
+					</tr>
+				</table>
+
+				<h2><?php esc_html_e( 'After-submit thank you', 'pool-quote-compare' ); ?></h2>
+				<p class="description"><?php esc_html_e( 'Shown as soon as the customer submits. The actual comparison is delivered by email ~10 minutes later.', 'pool-quote-compare' ); ?></p>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><label for="pqc_thank_you_url"><?php esc_html_e( 'Thank-you redirect URL (optional)', 'pool-quote-compare' ); ?></label></th>
+						<td>
+							<input type="url" id="pqc_thank_you_url" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[thank_you_url]" value="<?php echo esc_attr( $settings['thank_you_url'] ); ?>" class="regular-text" placeholder="https://example.com/thanks" />
+							<p class="description"><?php esc_html_e( 'If set, the customer is redirected here after submitting. If blank, the thank-you heading/message below is shown inline.', 'pool-quote-compare' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="pqc_thank_you_heading"><?php esc_html_e( 'Inline heading', 'pool-quote-compare' ); ?></label></th>
+						<td><input type="text" id="pqc_thank_you_heading" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[thank_you_heading]" value="<?php echo esc_attr( $settings['thank_you_heading'] ); ?>" class="large-text" /></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="pqc_thank_you_message"><?php esc_html_e( 'Inline message', 'pool-quote-compare' ); ?></label></th>
+						<td><textarea id="pqc_thank_you_message" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[thank_you_message]" rows="4" class="large-text"><?php echo esc_textarea( $settings['thank_you_message'] ); ?></textarea></td>
 					</tr>
 				</table>
 
