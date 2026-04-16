@@ -171,7 +171,7 @@ class PQC_Ajax {
 		exit;
 	}
 
-	private static function run_comparison( $submission_id, array $saved, $notes, array $settings ) {
+	public static function run_comparison( $submission_id, array $saved, $notes, array $settings ) {
 		PQC_Storage::update( $submission_id, [ 'status' => 'processing' ] );
 
 		$doc_blocks = [];

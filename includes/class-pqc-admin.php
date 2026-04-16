@@ -10,6 +10,7 @@ class PQC_Admin {
 		add_action( 'admin_init', [ __CLASS__, 'register_settings' ] );
 		add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue' ] );
 		add_action( 'admin_post_pqc_resend_email', [ __CLASS__, 'handle_resend' ] );
+		add_action( 'admin_post_pqc_rerun', [ __CLASS__, 'handle_rerun' ] );
 	}
 
 	public static function menu() {
@@ -315,6 +316,14 @@ class PQC_Admin {
 			<h1><?php printf( esc_html__( 'Submission #%d', 'pool-quote-compare' ), (int) $row->id ); ?></h1>
 			<p><a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=pqc-submissions' ) ); ?>">&larr; <?php esc_html_e( 'Back to list', 'pool-quote-compare' ); ?></a></p>
 
+			<?php if ( ! empty( $_GET['rerun'] ) && $_GET['rerun'] === 'started' ) : ?>
+				<div class="notice notice-success"><p><?php esc_html_e( 'Re-run started. Refresh this page in a minute or two to see the new response. The customer will be emailed automatically when it finishes.', 'pool-quote-compare' ); ?></p></div>
+			<?php elseif ( ! empty( $_GET['rerun'] ) && $_GET['rerun'] === 'missing' ) : ?>
+				<div class="notice notice-error"><p><?php esc_html_e( 'Could not re-run: the saved quote files are missing on disk.', 'pool-quote-compare' ); ?></p></div>
+			<?php elseif ( ! empty( $_GET['resent'] ) ) : ?>
+				<div class="notice notice-success"><p><?php esc_html_e( 'Email resent.', 'pool-quote-compare' ); ?></p></div>
+			<?php endif; ?>
+
 			<h2><?php esc_html_e( 'Customer', 'pool-quote-compare' ); ?></h2>
 			<table class="widefat"><tbody>
 				<tr><th><?php esc_html_e( 'Submitted', 'pool-quote-compare' ); ?></th><td><?php echo esc_html( $row->created_at ); ?></td></tr>
@@ -365,17 +374,102 @@ class PQC_Admin {
 				<pre style="max-height:400px;overflow:auto;background:#f6f7f7;padding:12px;border:1px solid #ccd0d4;"><?php echo esc_html( $row->system_prompt ); ?></pre>
 			</details>
 
-			<?php if ( $row->customer_email && $row->response ) : ?>
-				<h2><?php esc_html_e( 'Email', 'pool-quote-compare' ); ?></h2>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-					<?php wp_nonce_field( 'pqc_resend_' . $row->id, 'pqc_resend_nonce' ); ?>
-					<input type="hidden" name="action" value="pqc_resend_email" />
+			<h2><?php esc_html_e( 'Actions', 'pool-quote-compare' ); ?></h2>
+			<div class="pqc-action-row">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'Re-run the AI analysis for this submission? This will overwrite any existing response and email it to the customer.', 'pool-quote-compare' ) ); ?>');">
+					<?php wp_nonce_field( 'pqc_rerun_' . $row->id, 'pqc_rerun_nonce' ); ?>
+					<input type="hidden" name="action" value="pqc_rerun" />
 					<input type="hidden" name="id" value="<?php echo (int) $row->id; ?>" />
-					<button class="button button-primary" type="submit"><?php esc_html_e( 'Re-send email to customer', 'pool-quote-compare' ); ?></button>
+					<button class="button button-primary" type="submit"><?php esc_html_e( 'Re-run analysis and email', 'pool-quote-compare' ); ?></button>
+					<p class="description"><?php esc_html_e( 'Reprocesses the saved quote files with the current prompt and settings, saves the new response, and emails the customer.', 'pool-quote-compare' ); ?></p>
 				</form>
-			<?php endif; ?>
+
+				<?php if ( $row->customer_email && $row->response ) : ?>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:14px;">
+						<?php wp_nonce_field( 'pqc_resend_' . $row->id, 'pqc_resend_nonce' ); ?>
+						<input type="hidden" name="action" value="pqc_resend_email" />
+						<input type="hidden" name="id" value="<?php echo (int) $row->id; ?>" />
+						<button class="button" type="submit"><?php esc_html_e( 'Re-send existing response by email', 'pool-quote-compare' ); ?></button>
+						<p class="description"><?php esc_html_e( 'Sends the currently-stored response to the customer without re-running the AI.', 'pool-quote-compare' ); ?></p>
+					</form>
+				<?php endif; ?>
+			</div>
 		</div>
 		<?php
+	}
+
+	public static function handle_rerun() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'Forbidden' );
+		}
+		$id = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
+		check_admin_referer( 'pqc_rerun_' . $id, 'pqc_rerun_nonce' );
+
+		$row = PQC_Storage::get( $id );
+		if ( ! $row ) {
+			wp_safe_redirect( admin_url( 'admin.php?page=pqc-submissions&rerun=missing' ) );
+			exit;
+		}
+
+		$files = json_decode( $row->files_json, true );
+		if ( ! is_array( $files ) || count( $files ) < 2 ) {
+			PQC_Storage::update( $id, [
+				'status'        => 'failed',
+				'error_message' => __( 'Re-run failed: saved files are missing.', 'pool-quote-compare' ),
+			] );
+			wp_safe_redirect( admin_url( 'admin.php?page=pqc-submissions&view=' . $id . '&rerun=missing' ) );
+			exit;
+		}
+		foreach ( $files as $f ) {
+			if ( empty( $f['path'] ) || ! file_exists( $f['path'] ) ) {
+				PQC_Storage::update( $id, [
+					'status'        => 'failed',
+					'error_message' => __( 'Re-run failed: a saved quote file is missing on disk.', 'pool-quote-compare' ),
+				] );
+				wp_safe_redirect( admin_url( 'admin.php?page=pqc-submissions&view=' . $id . '&rerun=missing' ) );
+				exit;
+			}
+		}
+
+		$settings = pqc_get_settings();
+
+		// Reset the row so the UI reflects a fresh run, but preserve files + customer fields.
+		PQC_Storage::update( $id, [
+			'status'        => 'queued',
+			'response'      => '',
+			'usage_json'    => null,
+			'error_message' => null,
+			'emailed_at'    => null,
+			'system_prompt' => $settings['system_prompt'],
+			'model'         => $settings['model'],
+		] );
+
+		// Flush the response to the browser, then run the stream in the same process.
+		nocache_headers();
+		wp_safe_redirect( admin_url( 'admin.php?page=pqc-submissions&view=' . $id . '&rerun=started' ) );
+
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			fastcgi_finish_request();
+		} else {
+			@ob_end_flush();
+			@flush();
+		}
+
+		ignore_user_abort( true );
+		@set_time_limit( 0 );
+		if ( function_exists( 'session_write_close' ) ) {
+			@session_write_close();
+		}
+
+		try {
+			PQC_Ajax::run_comparison( $id, $files, (string) $row->customer_notes, $settings );
+		} catch ( Throwable $e ) {
+			PQC_Storage::update( $id, [
+				'status'        => 'failed',
+				'error_message' => 'Re-run failed: ' . $e->getMessage(),
+			] );
+		}
+		exit;
 	}
 
 	public static function handle_resend() {

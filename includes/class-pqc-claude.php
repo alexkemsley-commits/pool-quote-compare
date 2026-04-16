@@ -182,6 +182,7 @@ class PQC_Claude {
 		];
 
 		$buffer        = '';
+		$raw_body      = '';
 		$current_block = null;
 		$progress      = self::$progress_cb;
 
@@ -203,8 +204,9 @@ class PQC_Claude {
 			CURLOPT_LOW_SPEED_TIME  => 120,
 			CURLOPT_TCP_KEEPALIVE  => 1,
 			CURLOPT_TCP_KEEPIDLE   => 30,
-			CURLOPT_WRITEFUNCTION  => function ( $ch, $chunk ) use ( &$buffer, &$state, &$current_block, $progress ) {
-				$buffer .= $chunk;
+			CURLOPT_WRITEFUNCTION  => function ( $ch, $chunk ) use ( &$buffer, &$raw_body, &$state, &$current_block, $progress ) {
+				$raw_body .= $chunk;
+				$buffer   .= $chunk;
 				while ( ( $pos = strpos( $buffer, "\n\n" ) ) !== false ) {
 					$event_block = substr( $buffer, 0, $pos );
 					$buffer      = substr( $buffer, $pos + 2 );
@@ -226,11 +228,56 @@ class PQC_Claude {
 		}
 
 		if ( $http >= 400 || ( $ok === false && $err_no !== 0 && $state['text'] === '' ) ) {
-			$msg = $state['error_payload'] ?: ( $err_msg ? $err_msg : ( 'HTTP ' . $http ) );
-			return new WP_Error( 'pqc_api', sprintf( 'Claude API error (%d): %s', $http, $msg ) );
+			$msg = self::extract_error_message( $raw_body, $state, $err_msg, $http );
+			self::log_api_error( $http, $raw_body, $body );
+			return new WP_Error( 'pqc_api', sprintf( 'Claude API error (HTTP %d): %s', $http, $msg ) );
 		}
 
 		return $state;
+	}
+
+	/**
+	 * Pull the actual error message from whatever we got back: SSE error event,
+	 * plain JSON error body, or plain text.
+	 */
+	private static function extract_error_message( $raw_body, array $state, $curl_err, $http ) {
+		if ( ! empty( $state['error_payload'] ) ) {
+			return $state['error_payload'];
+		}
+		$trim = trim( (string) $raw_body );
+		if ( $trim !== '' ) {
+			$json = json_decode( $trim, true );
+			if ( is_array( $json ) ) {
+				if ( isset( $json['error']['message'] ) ) {
+					$type = isset( $json['error']['type'] ) ? ' [' . $json['error']['type'] . ']' : '';
+					return $type ? ( $json['error']['message'] . $type ) : $json['error']['message'];
+				}
+				if ( isset( $json['message'] ) ) {
+					return $json['message'];
+				}
+			}
+			if ( strlen( $trim ) < 1000 ) {
+				return $trim;
+			}
+			return substr( $trim, 0, 1000 ) . '…';
+		}
+		if ( $curl_err ) {
+			return $curl_err;
+		}
+		return 'HTTP ' . $http;
+	}
+
+	private static function log_api_error( $http, $raw_body, array $request_body ) {
+		if ( ! ( defined( 'WP_DEBUG' ) && WP_DEBUG ) ) {
+			return;
+		}
+		$summary = [
+			'model'       => isset( $request_body['model'] ) ? $request_body['model'] : '',
+			'max_tokens'  => isset( $request_body['max_tokens'] ) ? $request_body['max_tokens'] : 0,
+			'tool_count'  => isset( $request_body['tools'] ) && is_array( $request_body['tools'] ) ? count( $request_body['tools'] ) : 0,
+			'msg_count'   => isset( $request_body['messages'] ) && is_array( $request_body['messages'] ) ? count( $request_body['messages'] ) : 0,
+		];
+		error_log( '[PQC] Claude HTTP ' . $http . ' — request: ' . wp_json_encode( $summary ) . ' — body: ' . substr( (string) $raw_body, 0, 2000 ) );
 	}
 
 	private static function process_sse_block( $block, array &$state, &$current_block, $progress ) {
