@@ -54,6 +54,7 @@ function pqc_get_settings() {
 		'model'                   => 'claude-opus-4-7',
 		'max_tokens'              => 16000,
 		'enable_web_search'       => 1,
+		'pdf_extraction_mode'     => 'text_first',
 		'max_file_mb'         => 25,
 		'max_files'           => 5,
 		'email_from_name'     => get_bloginfo( 'name' ),

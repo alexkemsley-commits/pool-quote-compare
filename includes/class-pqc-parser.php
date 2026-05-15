@@ -42,6 +42,26 @@ class PQC_Parser {
 	public static function build_document_block( $path, $original_name ) {
 		$ext = strtolower( pathinfo( $original_name, PATHINFO_EXTENSION ) );
 		if ( $ext === 'pdf' ) {
+			$settings = pqc_get_settings();
+			$mode     = isset( $settings['pdf_extraction_mode'] ) ? $settings['pdf_extraction_mode'] : 'text_first';
+
+			// Default: try server-side text extraction (~3-10x cheaper than sending the full PDF).
+			if ( $mode !== 'pdf_always' ) {
+				$text = self::extract_pdf_text( $path );
+				if ( ! is_wp_error( $text ) ) {
+					return [
+						'type'   => 'document',
+						'source' => [
+							'type'       => 'text',
+							'media_type' => 'text/plain',
+							'data'       => $text,
+						],
+						'title'  => sanitize_file_name( $original_name ),
+					];
+				}
+				// pdftotext not available or yielded too little — fall back to PDF mode.
+			}
+
 			$data = @file_get_contents( $path );
 			if ( $data === false ) {
 				return new WP_Error( 'pqc_read', __( 'Could not read PDF.', 'pool-quote-compare' ) );
@@ -90,6 +110,48 @@ class PQC_Parser {
 		}
 
 		return new WP_Error( 'pqc_parser', __( 'Unsupported file type.', 'pool-quote-compare' ) );
+	}
+
+	/**
+	 * Try to extract plain text from a PDF using the Poppler `pdftotext` binary.
+	 * Returns the text on success, or a WP_Error if the binary is missing,
+	 * shell_exec is disabled, or extraction produced too little text to be
+	 * trustworthy (in which case the caller should fall back to PDF mode).
+	 */
+	public static function extract_pdf_text( $path ) {
+		if ( ! function_exists( 'shell_exec' ) ) {
+			return new WP_Error( 'pqc_pdf_text', 'shell_exec is disabled on this host.' );
+		}
+		$bin = self::pdftotext_path();
+		if ( $bin === '' ) {
+			return new WP_Error( 'pqc_pdf_text', 'pdftotext binary not found on this host.' );
+		}
+		$cmd    = sprintf( '%s -layout -enc UTF-8 -nopgbrk %s - 2>/dev/null', escapeshellarg( $bin ), escapeshellarg( $path ) );
+		$output = @shell_exec( $cmd );
+		if ( $output === null || $output === '' ) {
+			return new WP_Error( 'pqc_pdf_text', 'pdftotext produced no output.' );
+		}
+		$trimmed = trim( $output );
+		// Guard against scanned-image PDFs returning a handful of glyphs.
+		if ( strlen( $trimmed ) < 200 ) {
+			return new WP_Error( 'pqc_pdf_text', 'pdftotext output too short — likely a scanned/image PDF.' );
+		}
+		return $output;
+	}
+
+	public static function pdftotext_path() {
+		static $cached = null;
+		if ( $cached !== null ) {
+			return $cached;
+		}
+		if ( ! function_exists( 'shell_exec' ) ) {
+			return $cached = '';
+		}
+		$found = trim( (string) @shell_exec( 'command -v pdftotext 2>/dev/null' ) );
+		if ( $found === '' ) {
+			$found = trim( (string) @shell_exec( 'which pdftotext 2>/dev/null' ) );
+		}
+		return $cached = ( $found !== '' && is_file( $found ) ) ? $found : '';
 	}
 
 	private static function extract_docx_text( $path ) {

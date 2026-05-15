@@ -68,6 +68,10 @@ class PQC_Admin {
 			$clean['max_tokens'] = max( 1024, min( 128000, (int) $input['max_tokens'] ) );
 		}
 		$clean['enable_web_search'] = ! empty( $input['enable_web_search'] ) ? 1 : 0;
+		if ( isset( $input['pdf_extraction_mode'] ) ) {
+			$mode = sanitize_text_field( $input['pdf_extraction_mode'] );
+			$clean['pdf_extraction_mode'] = in_array( $mode, [ 'text_first', 'pdf_always' ], true ) ? $mode : 'text_first';
+		}
 		if ( isset( $input['max_file_mb'] ) ) {
 			$clean['max_file_mb'] = max( 1, min( 200, (int) $input['max_file_mb'] ) );
 		}
@@ -180,6 +184,24 @@ class PQC_Admin {
 							<input type="number" id="pqc_max_files" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[max_files]" value="<?php echo esc_attr( $settings['max_files'] ); ?>" min="2" max="20" />
 						</td>
 					</tr>
+					<tr>
+						<th scope="row"><label for="pqc_pdf_extraction_mode"><?php esc_html_e( 'PDF handling', 'pool-quote-compare' ); ?></label></th>
+						<td>
+							<?php $pdftotext = class_exists( 'PQC_Parser' ) ? PQC_Parser::pdftotext_path() : ''; ?>
+							<select id="pqc_pdf_extraction_mode" name="<?php echo esc_attr( PQC_OPTION_KEY ); ?>[pdf_extraction_mode]">
+								<option value="text_first" <?php selected( $settings['pdf_extraction_mode'], 'text_first' ); ?>><?php esc_html_e( 'Extract text server-side first (recommended — saves ~70-90% on Claude tokens)', 'pool-quote-compare' ); ?></option>
+								<option value="pdf_always" <?php selected( $settings['pdf_extraction_mode'], 'pdf_always' ); ?>><?php esc_html_e( 'Always send the full PDF (preserves images/diagrams, costs more)', 'pool-quote-compare' ); ?></option>
+							</select>
+							<p class="description">
+								<?php if ( $pdftotext !== '' ) : ?>
+									<span style="color:#1b5e20;">✓ <?php echo esc_html( sprintf( __( 'pdftotext found at %s — server-side extraction will work.', 'pool-quote-compare' ), $pdftotext ) ); ?></span>
+								<?php else : ?>
+									<span style="color:#b00020;">⚠ <?php esc_html_e( 'pdftotext is not installed on this server. The plugin will fall back to sending full PDFs. Install Poppler (apt: poppler-utils, yum: poppler-utils, brew: poppler) for cost savings.', 'pool-quote-compare' ); ?></span>
+								<?php endif; ?>
+								<br/><?php esc_html_e( "If a quote uses image-based diagrams (e.g. dimension drawings) that you want the agent to see, choose 'Always send the full PDF'.", 'pool-quote-compare' ); ?>
+							</p>
+						</td>
+					</tr>
 				</table>
 
 				<h2><?php esc_html_e( 'Email delivery', 'pool-quote-compare' ); ?></h2>
@@ -275,6 +297,7 @@ class PQC_Admin {
 						<th><?php esc_html_e( 'Email', 'pool-quote-compare' ); ?></th>
 						<th><?php esc_html_e( 'Files', 'pool-quote-compare' ); ?></th>
 						<th><?php esc_html_e( 'Status', 'pool-quote-compare' ); ?></th>
+						<th><?php esc_html_e( 'Tokens / cost', 'pool-quote-compare' ); ?></th>
 						<th><?php esc_html_e( 'Emailed', 'pool-quote-compare' ); ?></th>
 						<th></th>
 					</tr>
@@ -290,6 +313,7 @@ class PQC_Admin {
 							<td><?php echo esc_html( $row->customer_email ); ?></td>
 							<td><?php echo (int) $row->file_count; ?></td>
 							<td><?php echo esc_html( $row->status ); ?></td>
+							<td><code style="font-size:11px;"><?php echo esc_html( self::format_usage( $row->usage_json ) ); ?></code></td>
 							<td><?php echo $row->emailed_at ? esc_html( $row->emailed_at ) : '—'; ?></td>
 							<td><a href="<?php echo esc_url( admin_url( 'admin.php?page=pqc-submissions&view=' . (int) $row->id ) ); ?>" class="button button-small"><?php esc_html_e( 'View', 'pool-quote-compare' ); ?></a></td>
 						</tr>
@@ -366,6 +390,7 @@ class PQC_Admin {
 
 			<?php if ( $usage ) : ?>
 				<h3><?php esc_html_e( 'Usage', 'pool-quote-compare' ); ?></h3>
+				<p><strong><?php esc_html_e( 'Summary:', 'pool-quote-compare' ); ?></strong> <code><?php echo esc_html( self::format_usage( $usage ) ); ?></code> <em style="color:#6c757d;font-size:12px;">(Opus 4.7 rates: $5 / 1M input · $25 / 1M output · cache read ≈ 0.1×)</em></p>
 				<pre><?php echo esc_html( wp_json_encode( $usage, JSON_PRETTY_PRINT ) ); ?></pre>
 			<?php endif; ?>
 
@@ -396,6 +421,38 @@ class PQC_Admin {
 			</div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Format a usage_json blob into a short admin-readable string with an
+	 * estimated USD cost using Opus 4.7 pricing.
+	 */
+	private static function format_usage( $usage_json ) {
+		if ( empty( $usage_json ) ) {
+			return '—';
+		}
+		$u = is_array( $usage_json ) ? $usage_json : json_decode( $usage_json, true );
+		if ( ! is_array( $u ) ) {
+			return '—';
+		}
+		$in    = (int) ( $u['input_tokens']               ?? 0 );
+		$out   = (int) ( $u['output_tokens']              ?? 0 );
+		$cw    = (int) ( $u['cache_creation_input_tokens'] ?? 0 );
+		$cr    = (int) ( $u['cache_read_input_tokens']     ?? 0 );
+
+		// Opus 4.7 published rates: $5 / 1M input, $25 / 1M output.
+		// Cache write ~1.25× input, cache read ~0.1× input.
+		$cost = ( $in * 5.0 + $cw * 5.0 * 1.25 + $cr * 5.0 * 0.1 + $out * 25.0 ) / 1000000.0;
+
+		$total_in = $in + $cw + $cr;
+		$parts    = [];
+		$parts[]  = sprintf( 'in: %s', number_format( $total_in ) );
+		if ( $cr > 0 ) {
+			$parts[] = sprintf( 'cached: %s', number_format( $cr ) );
+		}
+		$parts[] = sprintf( 'out: %s', number_format( $out ) );
+		$parts[] = sprintf( '~$%.3f', $cost );
+		return implode( ' · ', $parts );
 	}
 
 	public static function handle_rerun() {
